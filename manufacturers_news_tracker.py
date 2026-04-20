@@ -15,6 +15,7 @@ Add or remove companies in the SOURCES list below.
 
 State is stored in 'newsroom_seen_articles.json' in the output directory.
 New articles are appended to 'newsroom_new_articles.csv' each run.
+New articles are also written to 'newsroom_new_articles.xlsx' with one tab per vendor.
 Full article list is written to 'newsroom_articles.csv' each run.
 
 Usage:
@@ -23,7 +24,7 @@ Usage:
     python3 manufacturers_news_tracker.py --since 2026-01-01  # only articles on/after this date
 
 Requirements:
-    pip3 install requests anthropic
+    pip3 install requests anthropic openpyxl
 """
 
 import argparse
@@ -47,6 +48,15 @@ try:
 except ImportError:
     print("Missing dependency. Install with:")
     print("  pip3 install anthropic")
+    sys.exit(1)
+
+try:
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+except ImportError:
+    print("Missing dependency. Install with:")
+    print("  pip3 install openpyxl")
     sys.exit(1)
 
 # ── Sources ────────────────────────────────────────────────────────────────────
@@ -93,8 +103,10 @@ BANDF_RSS_URL = "https://blocksandfiles.com/feed"
 
 OUTPUT_DIR   = Path("/Users/rick/Library/CloudStorage/OneDrive-Personal/Vendor Documentation/a_press_releases")
 STATE_FILE   = OUTPUT_DIR / "newsroom_seen_articles.json"
-CSV_FILE     = OUTPUT_DIR / "newsroom_new_articles.csv"
-ALL_CSV_FILE = OUTPUT_DIR / "newsroom_articles.csv"
+CSV_FILE      = OUTPUT_DIR / "newsroom_new_articles.csv"
+XLSX_FILE     = OUTPUT_DIR / "newsroom_new_articles.xlsx"
+ALL_CSV_FILE  = OUTPUT_DIR / "newsroom_articles.csv"
+ALL_XLSX_FILE = OUTPUT_DIR / "newsroom_articles.xlsx"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)  # create if it doesn't exist
 
@@ -307,6 +319,70 @@ def append_to_csv(new_articles: list[dict]) -> None:
             })
 
 
+def write_new_articles_xlsx(new_articles: list[dict]) -> None:
+    """
+    Append new articles to a single-sheet Excel workbook.
+    Headers are bold and light blue. Columns are auto-sized.
+    URLs are written as clickable hyperlinks.
+    If the file already exists it is loaded and rows are appended.
+    """
+    COLUMNS        = ["source", "data source", "date", "category", "title", "url"]
+    HEADER_FONT    = Font(bold=True, color="000000")
+    HEADER_FILL    = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+    HYPERLINK_FONT = Font(color="0563C1", underline="single")
+    SHEET_NAME     = "New Articles"
+
+    # Load existing workbook or create a fresh one
+    if XLSX_FILE.exists():
+        wb = load_workbook(XLSX_FILE)
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        next_row = ws.max_row + 1
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = SHEET_NAME
+        next_row = 2
+        # Write header row
+        for col_idx, col_name in enumerate(COLUMNS, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name.title())
+            cell.font      = HEADER_FONT
+            cell.fill      = HEADER_FILL
+            cell.alignment = Alignment(horizontal="center")
+
+    # Sort newest first before appending
+    articles = sorted(new_articles, key=lambda a: parse_date(a["date"]), reverse=True)
+
+    # Write article rows
+    for a in articles:
+        raw_source = a["source"]
+        row_data = [
+            get_clean_source(raw_source),
+            get_data_source(raw_source),
+            parse_date(a["date"]),
+            a.get("category", ""),
+            a["title"],
+            a["url"],
+        ]
+        for col_idx, value in enumerate(row_data, start=1):
+            cell = ws.cell(row=next_row, column=col_idx, value=value)
+            if COLUMNS[col_idx - 1] == "url" and value:
+                cell.hyperlink = value
+                cell.font = HYPERLINK_FONT
+        next_row += 1
+
+    # Auto-size all columns based on content
+    for col_idx, col_name in enumerate(COLUMNS, start=1):
+        col_letter = get_column_letter(col_idx)
+        max_len = len(col_name)
+        for row in ws.iter_rows(min_col=col_idx, max_col=col_idx):
+            for cell in row:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
+
+    wb.save(XLSX_FILE)
+
+
 def write_all_articles_csv(seen: dict) -> None:
     """Write the full contents of the seen dict to newsroom_articles.csv."""
     rows = []
@@ -327,6 +403,72 @@ def write_all_articles_csv(seen: dict) -> None:
         writer = csv.DictWriter(f, fieldnames=["source", "data source", "date", "category", "title", "url"])
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_all_articles_xlsx(seen: dict) -> None:
+    """
+    Write the full contents of the seen dict to newsroom_articles.xlsx.
+    One tab per vendor, sorted newest first. Bold light blue headers,
+    auto-sized columns, clickable URL hyperlinks.
+    Overwrites the file completely each run (full snapshot).
+    """
+    from collections import defaultdict
+
+    COLUMNS     = ["source", "data source", "date", "category", "title", "url"]
+    HEADER_FONT = Font(bold=True, color="000000")
+    HEADER_FILL = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+    HYPERLINK_FONT = Font(color="0563C1", underline="single")
+
+    # Build rows grouped by clean source name
+    by_source = defaultdict(list)
+    for url, entry in seen.items():
+        raw_source = entry.get("source", "")
+        by_source[get_clean_source(raw_source)].append({
+            "source":      get_clean_source(raw_source),
+            "data source": get_data_source(raw_source),
+            "date":        parse_date(entry.get("date", "")),
+            "category":    entry.get("category", ""),
+            "title":       entry.get("title", ""),
+            "url":         url,
+        })
+
+    wb = Workbook()
+    wb.remove(wb.active)  # remove default empty sheet
+
+    for source_name in sorted(by_source.keys()):
+        articles = sorted(by_source[source_name], key=lambda r: r["date"], reverse=True)
+        ws = wb.create_sheet(title=source_name)
+
+        # Header row
+        for col_idx, col_name in enumerate(COLUMNS, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name.title())
+            cell.font      = HEADER_FONT
+            cell.fill      = HEADER_FILL
+            cell.alignment = Alignment(horizontal="center")
+
+        # Data rows
+        for row_idx, a in enumerate(articles, start=2):
+            row_data = [
+                a["source"], a["data source"], a["date"],
+                a["category"], a["title"], a["url"],
+            ]
+            for col_idx, value in enumerate(row_data, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                if COLUMNS[col_idx - 1] == "url" and value:
+                    cell.hyperlink = value
+                    cell.font = HYPERLINK_FONT
+
+        # Auto-size columns
+        for col_idx, col_name in enumerate(COLUMNS, start=1):
+            col_letter = get_column_letter(col_idx)
+            max_len = len(col_name)
+            for row in ws.iter_rows(min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value:
+                        max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
+
+    wb.save(ALL_XLSX_FILE)
 
 # ── RSS fetchers ───────────────────────────────────────────────────────────────
 
@@ -484,6 +626,7 @@ def main() -> None:
 
     save_seen(seen)
     write_all_articles_csv(seen)
+    write_all_articles_xlsx(seen)
 
     if is_first_run:
         print("First run complete — baselines saved.")
@@ -492,9 +635,12 @@ def main() -> None:
         print(f"Done. {total_new} new article(s) found across all sources.")
         print(f"State saved to: {STATE_FILE}")
         print(f"Full article list updated: {ALL_CSV_FILE}")
+        print(f"Full article list updated: {ALL_XLSX_FILE}")
         if all_new:
             append_to_csv(all_new)
+            write_new_articles_xlsx(all_new)
             print(f"New articles appended to: {CSV_FILE}")
+            print(f"New articles written to:  {XLSX_FILE}")
 
 
 if __name__ == "__main__":
