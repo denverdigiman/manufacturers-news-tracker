@@ -7,10 +7,10 @@ A Python script that monitors the newsrooms and press release pages of key stora
 Each time the script runs it:
 
 1. Checks the official newsroom RSS feeds for each tracked vendor via Google News
-2. Checks Blocks & Files (blocksandfiles.com), a storage industry news site, filtering for articles that mention a tracked vendor by name
+2. Checks Blocks & Files (blocksandfiles.com), a storage industry news site, filtering for articles that mention a tracked vendor by name in the title
 3. Compares results against previously seen articles to identify only what is new
 4. Fetches each new article and uses the Claude AI API to classify it into one of five categories: **New Product**, **New Feature**, **Partnership**, **Financial**, or **Other**
-5. Updates the JSON state file and CSV output files
+5. Updates the JSON state file and all CSV and Excel output files
 
 ## Tracked Vendors
 
@@ -29,12 +29,16 @@ All output files are written to the configured output directory.
 |------|-------------|
 | `newsroom_seen_articles.json` | State file tracking all previously seen articles. Do not delete this unless you want to reset the baseline. |
 | `newsroom_articles.csv` | Full snapshot of every article ever seen. Overwritten on every run. |
+| `newsroom_articles.xlsx` | Full snapshot of every article ever seen in Excel format. One tab per vendor, sorted newest first. Overwritten on every run. |
 | `newsroom_new_articles.csv` | Running log of newly discovered articles only. Appended to on every run. |
+| `newsroom_new_articles.xlsx` | Running log of newly discovered articles only in Excel format. Single sheet, all vendors combined, newest entries at the top. Appended to on every run. |
 
-Both CSV files use the following column layout:
+## Column Layout
+
+All CSV and Excel files use the following column layout:
 
 ```
-source, data source, date, category, title, url
+source | data source | date | category | title | url
 ```
 
 - **source** — the vendor name (e.g. NetApp, Veeam)
@@ -44,12 +48,26 @@ source, data source, date, category, title, url
 - **title** — article headline
 - **url** — link to the full article
 
+## Excel Formatting
+
+Both `.xlsx` files share the same formatting:
+
+- **Bold, light blue column headers**
+- **Auto-sized columns** (capped at 80 characters wide)
+- **Clickable hyperlinks** in the URL column
+
+### newsroom_articles.xlsx
+One worksheet (tab) per vendor, named after the vendor. Articles sorted newest to oldest within each tab. The file is completely regenerated on every run, always reflecting the full current state.
+
+### newsroom_new_articles.xlsx
+A single worksheet named "New Articles" containing all vendors combined. New articles are appended to the sheet on each run, with the most recently discovered articles at the top of each batch.
+
 ## Requirements
 
 ### Python Dependencies
 
 ```bash
-pip3 install requests anthropic
+pip3 install requests anthropic openpyxl
 ```
 
 ### API Key
@@ -128,3 +146,4 @@ Add this line:
 - Google News RSS feeds do not provide a complete historical archive. They typically return the most recent 20–50 articles per query, and results can vary between runs. Using the `--days` flag is recommended to filter out older articles that occasionally surface in the feed.
 - The Blocks & Files feed filters articles by checking whether a vendor name appears in the article title. Because "Pure" is a short common word, occasional false matches are possible for that vendor.
 - Article classification requires an active internet connection and a valid Anthropic API key. If classification fails for any article, the category will be recorded as `Unknown`.
+- Existing articles in the JSON state file from runs prior to classification being added will have an empty category field.
