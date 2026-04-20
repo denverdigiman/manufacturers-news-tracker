@@ -1,0 +1,15 @@
+# Exclude state and output files with potentially sensitive paths
+newsroom_seen_articles.json
+newsroom_articles.csv
+newsroom_new_articles.csv
+
+# Exclude environment variable files
+.env
+*.env
+
+# Exclude macOS junk
+.DS_Store
+
+# Exclude Python cache
+__pycache__/
+*.pyc
