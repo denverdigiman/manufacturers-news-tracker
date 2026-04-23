@@ -468,6 +468,9 @@ def write_all_articles_xlsx(seen: dict) -> None:
                         max_len = max(max_len, len(str(cell.value)))
             ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
 
+        # Add Excel AutoFilter dropdowns to all columns
+        ws.auto_filter.ref = ws.dimensions
+
     wb.save(ALL_XLSX_FILE)
 
 # ── RSS fetchers ───────────────────────────────────────────────────────────────
