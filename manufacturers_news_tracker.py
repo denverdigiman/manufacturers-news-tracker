@@ -101,7 +101,7 @@ BANDF_RSS_URL = "https://blocksandfiles.com/feed"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR   = Path("/Users/rick/Library/CloudStorage/OneDrive-Personal/Vendor Documentation/a_press_releases")
+OUTPUT_DIR   = Path("/Volumes/ricks/syncs/Microsoft_OneDrive_denverdigimanchc/Vendor_Documentation/a_press_releases")
 STATE_FILE   = OUTPUT_DIR / "newsroom_seen_articles.json"
 CSV_FILE      = OUTPUT_DIR / "newsroom_new_articles.csv"
 XLSX_FILE     = OUTPUT_DIR / "newsroom_new_articles.xlsx"
@@ -300,14 +300,29 @@ def get_clean_source(source: str) -> str:
     return source
 
 
+def within_one_year(articles: list[dict]) -> list[dict]:
+    """Filter articles to only those published within the past 1 year."""
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=365)
+    filtered = []
+    for a in articles:
+        dt = parse_date_obj(a["date"])
+        # Include if date is unparseable (don't silently drop) or within range
+        if dt is None or dt >= cutoff:
+            filtered.append(a)
+    return filtered
+
+
 def append_to_csv(new_articles: list[dict]) -> None:
-    """Append new articles to the new-articles CSV, creating header if needed."""
+    """Append new articles from the past year to the new-articles CSV, creating header if needed."""
+    articles = within_one_year(new_articles)
+    if not articles:
+        return
     write_header = not CSV_FILE.exists()
     with CSV_FILE.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["source", "data source", "date", "category", "title", "url"])
         if write_header:
             writer.writeheader()
-        for a in new_articles:
+        for a in articles:
             raw_source = a["source"]
             writer.writerow({
                 "source":      get_clean_source(raw_source),
@@ -321,54 +336,76 @@ def append_to_csv(new_articles: list[dict]) -> None:
 
 def write_new_articles_xlsx(new_articles: list[dict]) -> None:
     """
-    Append new articles to a single-sheet Excel workbook.
+    Merge new articles with any previously saved rows, sort everything by date
+    descending, and rewrite the sheet so the most recent entry is always first.
+    Only articles within the past year are included.
     Headers are bold and light blue. Columns are auto-sized.
     URLs are written as clickable hyperlinks.
-    If the file already exists it is loaded and rows are appended.
     """
+    new = within_one_year(new_articles)
+    if not new:
+        return
+
     COLUMNS        = ["source", "data source", "date", "category", "title", "url"]
     HEADER_FONT    = Font(bold=True, color="000000")
     HEADER_FILL    = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
     HYPERLINK_FONT = Font(color="0563C1", underline="single")
     SHEET_NAME     = "New Articles"
 
-    # Load existing workbook or create a fresh one
+    # Read all existing rows from the file so we can re-sort everything together
+    existing_rows = []
     if XLSX_FILE.exists():
-        wb = load_workbook(XLSX_FILE)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        next_row = ws.max_row + 1
-    else:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = SHEET_NAME
-        next_row = 2
-        # Write header row
-        for col_idx, col_name in enumerate(COLUMNS, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=col_name.title())
-            cell.font      = HEADER_FONT
-            cell.fill      = HEADER_FILL
-            cell.alignment = Alignment(horizontal="center")
+        wb_old = load_workbook(XLSX_FILE)
+        ws_old = wb_old[SHEET_NAME] if SHEET_NAME in wb_old.sheetnames else wb_old.active
+        for row in ws_old.iter_rows(min_row=2, values_only=True):
+            if any(cell is not None for cell in row):
+                # Store as dict keyed by column name; pad missing columns with ""
+                existing_rows.append(dict(zip(COLUMNS, [v or "" for v in row])))
 
-    # Sort newest first before appending
-    articles = sorted(new_articles, key=lambda a: parse_date(a["date"]), reverse=True)
-
-    # Write article rows
-    for a in articles:
+    # Build new rows from incoming articles
+    incoming_rows = []
+    for a in new:
         raw_source = a["source"]
-        row_data = [
-            get_clean_source(raw_source),
-            get_data_source(raw_source),
-            parse_date(a["date"]),
-            a.get("category", ""),
-            a["title"],
-            a["url"],
-        ]
-        for col_idx, value in enumerate(row_data, start=1):
-            cell = ws.cell(row=next_row, column=col_idx, value=value)
-            if COLUMNS[col_idx - 1] == "url" and value:
+        incoming_rows.append({
+            "source":      get_clean_source(raw_source),
+            "data source": get_data_source(raw_source),
+            "date":        parse_date(a["date"]),
+            "category":    a.get("category", ""),
+            "title":       a["title"],
+            "url":         a["url"],
+        })
+
+    # Merge, de-duplicate by url, then sort newest first
+    seen_urls = set()
+    all_rows  = []
+    for row in existing_rows + incoming_rows:
+        url = row.get("url", "")
+        if url not in seen_urls:
+            seen_urls.add(url)
+            all_rows.append(row)
+
+    all_rows.sort(key=lambda r: r.get("date", ""), reverse=True)
+
+    # Rebuild the workbook from scratch with sorted data
+    wb = Workbook()
+    ws = wb.active
+    ws.title = SHEET_NAME
+
+    # Header row
+    for col_idx, col_name in enumerate(COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name.title())
+        cell.font      = HEADER_FONT
+        cell.fill      = HEADER_FILL
+        cell.alignment = Alignment(horizontal="center")
+
+    # Data rows
+    for row_idx, row in enumerate(all_rows, start=2):
+        for col_idx, col_name in enumerate(COLUMNS, start=1):
+            value = row.get(col_name, "")
+            cell  = ws.cell(row=row_idx, column=col_idx, value=value)
+            if col_name == "url" and value:
                 cell.hyperlink = value
                 cell.font = HYPERLINK_FONT
-        next_row += 1
 
     # Auto-size all columns based on content
     for col_idx, col_name in enumerate(COLUMNS, start=1):
