@@ -101,7 +101,7 @@ BANDF_RSS_URL = "https://blocksandfiles.com/feed"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR   = Path("/Volumes/ricks/syncs/Microsoft_OneDrive_denverdigimanchc/Vendor_Documentation/a_press_releases")
+OUTPUT_DIR   = Path("/mnt/ugreennas/Vendor_Documentation/a_press_releases")
 STATE_FILE   = OUTPUT_DIR / "newsroom_seen_articles.json"
 CSV_FILE      = OUTPUT_DIR / "newsroom_new_articles.csv"
 XLSX_FILE     = OUTPUT_DIR / "newsroom_new_articles.xlsx"
