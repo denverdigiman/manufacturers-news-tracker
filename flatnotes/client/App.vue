@@ -14,9 +14,9 @@
 
     <!-- Main area: sidebar + content -->
     <div class="flex min-h-0 flex-1 overflow-hidden">
-      <!-- Directory sidebar -->
+      <!-- Directory sidebar (always visible except login) -->
       <aside
-        v-if="showSidebar"
+        v-if="showNavBar"
         class="hidden w-56 shrink-0 flex-col overflow-y-auto border-r border-theme-border bg-theme-background px-2 py-2 md:flex print:hidden"
       >
         <div class="mb-2 flex items-center justify-between px-1">
@@ -34,13 +34,11 @@
             </svg>
           </button>
         </div>
-        <LoadingIndicator ref="treeLoadingIndicator" hideLoader>
-          <DirectoryTree
-            :nodes="tree"
-            :activeNotePath="activeNotePath"
-            @navigate="navigateToNote"
-          />
-        </LoadingIndicator>
+        <DirectoryTree
+          :nodes="tree"
+          :activeNotePath="activeNotePath"
+          @navigate="navigateToNote"
+        />
       </aside>
 
       <!-- Page content -->
@@ -72,12 +70,10 @@ import router from "./router.js";
 const globalStore = useGlobalStore();
 const isSearchModalVisible = ref(false);
 const loadingIndicator = ref();
-const treeLoadingIndicator = ref();
 const route = useRoute();
 const toast = useToast();
 const tree = ref([]);
 
-// '/' to search
 Mousetrap.bind("/", () => {
   if (route.name !== "login") {
     toggleSearchModal();
@@ -99,6 +95,12 @@ Mousetrap.bindGlobal("ctrl+alt+h", () => {
   }
 });
 
+function loadTree() {
+  getTree()
+    .then((data) => { tree.value = data; })
+    .catch(() => {}); // non-fatal
+}
+
 getConfig()
   .then((data) => {
     globalStore.config = data;
@@ -110,39 +112,11 @@ getConfig()
     loadingIndicator.value.setFailed();
   });
 
-function loadTree() {
-  if (!treeLoadingIndicator.value) return;
-  getTree()
-    .then((data) => {
-      tree.value = data;
-      treeLoadingIndicator.value.setLoaded();
-    })
-    .catch(() => {
-      treeLoadingIndicator.value.setLoaded(); // non-fatal
-    });
-}
-
-// Refresh the tree whenever a note route is entered (handles create/delete/rename)
-watch(
-  () => route.name,
-  (name) => {
-    if (name === "home" || name === "search") {
-      loadTree();
-    }
-  },
-);
-
-// Also refresh when navigating away from the note editor (save/delete)
-watch(
-  () => route.params,
-  () => {
-    if (route.name === "note") loadTree();
-  },
-);
+// Refresh tree on every route change so create/rename/delete stays in sync
+watch(() => route.fullPath, loadTree);
 
 const showNavBar = computed(() => route.name !== "login");
 const showNavBarLogo = computed(() => route.name !== "home");
-const showSidebar = computed(() => !["login", "home"].includes(route.name));
 
 const activeNotePath = computed(() => {
   if (route.name !== "note") return null;
