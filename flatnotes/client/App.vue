@@ -17,7 +17,8 @@
       <!-- Directory sidebar (always visible except login) -->
       <aside
         v-if="showNavBar"
-        class="hidden w-56 shrink-0 flex-col overflow-y-auto border-r border-theme-border bg-theme-background px-2 py-2 md:flex print:hidden"
+        :style="{ width: sidebarWidth + 'px' }"
+        class="hidden shrink-0 flex-col overflow-y-auto border-r border-theme-border bg-theme-background px-2 py-2 md:flex print:hidden"
       >
         <div class="mb-2 flex items-center justify-between px-1">
           <span class="text-xs font-bold uppercase text-theme-text-very-muted">
@@ -41,6 +42,13 @@
         />
       </aside>
 
+      <!-- Drag handle -->
+      <div
+        v-if="showNavBar"
+        class="hidden w-1 cursor-col-resize bg-transparent hover:bg-theme-brand/40 active:bg-theme-brand/60 md:block print:hidden"
+        @mousedown="startResize"
+      />
+
       <!-- Page content -->
       <div class="flex min-w-0 flex-1 flex-col overflow-y-auto px-2 py-2">
         <RouterView />
@@ -53,7 +61,7 @@
 import Mousetrap from "mousetrap";
 import "mousetrap/plugins/global-bind/mousetrap-global-bind";
 import { useToast } from "primevue/usetoast";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 
 import { apiErrorHandler, getConfig, getTree } from "./api.js";
@@ -73,6 +81,37 @@ const loadingIndicator = ref();
 const route = useRoute();
 const toast = useToast();
 const tree = ref([]);
+
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 600;
+const SIDEBAR_DEFAULT = 224;
+const sidebarWidth = ref(
+  parseInt(localStorage.getItem("sidebarWidth") || SIDEBAR_DEFAULT)
+);
+
+function startResize(e) {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startWidth = sidebarWidth.value;
+
+  function onMove(e) {
+    const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + e.clientX - startX));
+    sidebarWidth.value = newWidth;
+  }
+
+  function onUp() {
+    localStorage.setItem("sidebarWidth", sidebarWidth.value);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  }
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+onBeforeUnmount(() => {
+  // cleanup handled inline in onUp
+});
 
 Mousetrap.bind("/", () => {
   if (route.name !== "login") {
