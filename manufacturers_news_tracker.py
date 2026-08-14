@@ -72,7 +72,7 @@ SOURCES = [
     },
     {
         "name":  "Pure",
-        "query": "site:purestorage.com/company/newsroom/press-releases",
+        "query": "site:www.everpuredata.com/company/newsroom/press-releases.html",
     },
     {
         "name":  "Rubrik",
@@ -101,7 +101,7 @@ BANDF_RSS_URL = "https://blocksandfiles.com/feed"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR   = Path("/mnt/ugreennas/Vendor_Documentation/a_press_releases")
+OUTPUT_DIR   = Path("/mnt/vendor_documentation/a_press_releases")
 STATE_FILE   = OUTPUT_DIR / "newsroom_seen_articles.json"
 CSV_FILE      = OUTPUT_DIR / "newsroom_new_articles.csv"
 XLSX_FILE     = OUTPUT_DIR / "newsroom_new_articles.xlsx"
